@@ -154,7 +154,9 @@ async def get_fires(
             conditions.append("pref_code = :pref_code")
             params["pref_code"] = pref_code
 
-
+        # Japan only — exclude fires outside prefecture boundaries
+        conditions.append("pref_code IS NOT NULL")
+        
         where = " AND ".join(conditions)
 
         sql = f"""

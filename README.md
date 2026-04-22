@@ -1,9 +1,9 @@
 # Japan Forest Fire Dashboard — Near Real-Time
 
 A production-grade, near-real-time forest fire monitoring dashboard for Japan.
-Powered by NASA FIRMS, JAXA Himawari-9, PostGIS, FastAPI, and MapLibre GL JS.
+Powered by NASA FIRMS, JMA weather, PostGIS, FastAPI, and MapLibre GL JS.
 
-**Live demo:** `https://japan-fire.onrender.com` *(after deployment)*
+**Live demo:** https://japan-fire-dashboard.onrender.com
 
 ---
 
@@ -110,20 +110,6 @@ Functions: `get_hotspots_geojson()` · `get_risk_geojson()`
 
 ---
 
-## Project Phases
-
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 1 | ✅ Done | PostGIS schema + prefecture boundaries |
-| 2 | 🔜 Next | NASA FIRMS ingestion + APScheduler |
-| 3 | ⬜ | Sentinel-2 burn scar mapping |
-| 4 | ⬜ | Fire risk ML model (XGBoost) |
-| 5 | ⬜ | FastAPI GeoJSON endpoints |
-| 6 | ⬜ | MapLibre GL JS dashboard |
-| 7 | ⬜ | Deploy to Render.com |
-
----
-
 ## Data Sources
 
 | Source | Data | Update Freq | Access |
@@ -134,8 +120,4 @@ Functions: `get_hotspots_geojson()` · `get_risk_geojson()`
 | Copernicus | Sentinel-2 imagery | 5 day revisit | Free account |
 | GSI | Prefecture boundaries, DEM | Static | Open data |
 
----
 
-## Contact
-
-Built as a portfolio project targeting geospatial AI roles in Japan.

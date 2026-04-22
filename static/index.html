@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Japan Forest Fire Dashboard</title>
+<link href="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.1.3/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #0f1117; color: #e8e8e8; height: 100vh; display: flex; flex-direction: column; }
+
+  /* ── Header ── */
+  #header {
+    background: #161b22; border-bottom: 1px solid #30363d;
+    padding: 10px 16px; display: flex; align-items: center;
+    gap: 16px; flex-shrink: 0; z-index: 10;
+  }
+  #header h1 { font-size: 15px; font-weight: 600; color: #ff6b35; letter-spacing: 0.3px; }
+  .stat-pill {
+    background: #21262d; border: 1px solid #30363d; border-radius: 20px;
+    padding: 3px 10px; font-size: 12px; color: #8b949e; display: flex; align-items: center; gap: 5px;
+  }
+  .stat-pill span { color: #e6edf3; font-weight: 600; }
+  .pulse { width: 8px; height: 8px; border-radius: 50%; background: #3fb950;
+           animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(1.2)} }
+  .pulse.warn { background: #ff6b35; }
+  #last-update { margin-left: auto; font-size: 11px; color: #6e7681; }
+
+  /* ── Layout ── */
+  #main { display: flex; flex: 1; overflow: hidden; }
+  #map { flex: 1; }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 320px; background: #161b22; border-left: 1px solid #30363d;
+    display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
+  }
+  #sidebar-tabs { display: flex; border-bottom: 1px solid #30363d; }
+  .stab {
+    flex: 1; padding: 10px; text-align: center; font-size: 12px; color: #8b949e;
+    cursor: pointer; border-bottom: 2px solid transparent; transition: all .2s;
+  }
+  .stab.active { color: #ff6b35; border-bottom-color: #ff6b35; }
+  #sidebar-content { flex: 1; overflow-y: auto; padding: 12px; }
+
+  /* ── Layer controls ── */
+  #layer-controls {
+    background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 12px;
+  }
+  .lc-title { font-size: 11px; color: #6e7681; text-transform: uppercase;
+               letter-spacing: .05em; margin-bottom: 8px; }
+  .layer-toggle { display: flex; align-items: center; gap: 8px;
+                  margin-bottom: 6px; cursor: pointer; }
+  .layer-toggle input[type=checkbox] { accent-color: #ff6b35; width: 14px; height: 14px; }
+  .layer-toggle label { font-size: 12px; color: #8b949e; cursor: pointer; }
+
+  /* ── Prefecture card ── */
+  #pref-card { display: none; }
+  #pref-card.visible { display: block; }
+  .pref-header {
+    background: #21262d; border: 1px solid #30363d; border-radius: 8px;
+    padding: 12px; margin-bottom: 10px;
+  }
+  .pref-name { font-size: 16px; font-weight: 600; color: #e6edf3; margin-bottom: 4px; }
+  .pref-region { font-size: 11px; color: #6e7681; margin-bottom: 10px; }
+  .risk-badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+  }
+  .risk-very_low  { background:#0d1117; color:#3fb950; border:1px solid #238636; }
+  .risk-low       { background:#0d1117; color:#3fb950; border:1px solid #238636; }
+  .risk-moderate  { background:#0d1117; color:#d29922; border:1px solid #9e6a03; }
+  .risk-high      { background:#0d1117; color:#f78166; border:1px solid #da3633; }
+  .risk-very_high { background:#0d1117; color:#ff6b35; border:1px solid #f85149; }
+  .risk-extreme   { background:#0d1117; color:#ff0000; border:1px solid #ff0000; }
+
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+  .stat-box { background: #21262d; border: 1px solid #30363d; border-radius: 6px; padding: 10px; }
+  .stat-label { font-size: 10px; color: #6e7681; text-transform: uppercase; margin-bottom: 4px; }
+  .stat-value { font-size: 18px; font-weight: 700; color: #e6edf3; }
+  .stat-unit { font-size: 10px; color: #6e7681; margin-left: 2px; }
+
+  /* ── Recent hotspots list ── */
+  .hotspot-item {
+    background: #21262d; border: 1px solid #30363d; border-radius: 6px;
+    padding: 8px 10px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px;
+  }
+  .hs-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .hs-info { flex: 1; }
+  .hs-source { font-size: 10px; color: #6e7681; }
+  .hs-time { font-size: 10px; color: #6e7681; text-align: right; }
+  .hs-frp { font-size: 12px; font-weight: 600; }
+
+  /* ── Weather card ── */
+  .wx-row { display: flex; align-items: center; justify-content: space-between;
+            padding: 7px 0; border-bottom: 1px solid #21262d; font-size: 12px; }
+  .wx-row:last-child { border-bottom: none; }
+  .wx-label { color: #8b949e; }
+  .wx-value { color: #e6edf3; font-weight: 600; }
+  .fwi-bar-wrap { margin-top: 8px; }
+  .fwi-bar-bg { background: #21262d; border-radius: 4px; height: 6px; overflow: hidden; }
+  .fwi-bar-fill { height: 100%; border-radius: 4px; transition: width .5s; }
+
+  /* ── Chart ── */
+  #chart-wrap { background: #21262d; border: 1px solid #30363d;
+                border-radius: 8px; padding: 12px; margin-top: 10px; }
+  #chart-wrap h4 { font-size: 11px; color: #6e7681; margin-bottom: 8px;
+                   text-transform: uppercase; letter-spacing: .05em; }
+  #trendChart { max-height: 140px; }
+
+  /* ── Source legend ── */
+  .legend { background: #21262d; border: 1px solid #30363d; border-radius: 8px;
+            padding: 10px 12px; margin-bottom: 12px; }
+  .legend-title { font-size: 11px; color: #6e7681; margin-bottom: 8px;
+                  text-transform: uppercase; letter-spacing: .05em; }
+  .legend-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 11px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .legend-label { color: #8b949e; flex: 1; }
+  .legend-count { color: #6e7681; font-size: 10px; }
+
+  /* ── Empty state ── */
+  .empty { text-align: center; padding: 40px 20px; color: #6e7681; font-size: 13px; }
+  .empty-icon { font-size: 32px; margin-bottom: 8px; }
+
+  /* ── Map popup override ── */
+  .maplibregl-popup-content {
+    background: #161b22 !important; color: #e8e8e8 !important;
+    border: 1px solid #30363d !important; border-radius: 8px !important;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
+    font-size: 12px !important; padding: 10px 12px !important; min-width: 180px;
+  }
+  .maplibregl-popup-tip { display: none; }
+  .maplibregl-popup-close-button { color: #6e7681 !important; font-size: 16px !important; }
+  .popup-title { font-size: 13px; font-weight: 600; color: #e6edf3; margin-bottom: 6px; }
+  .popup-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+  .popup-key { color: #8b949e; }
+  .popup-val { color: #e6edf3; font-weight: 600; }
+  .popup-frp { font-size: 18px; font-weight: 700; color: #ff6b35; }
+
+  #loading-overlay {
+    position: fixed; inset: 0; background: #0f1117;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 16px; z-index: 999;
+    transition: opacity .5s;
+  }
+  .loader-text { font-size: 14px; color: #6e7681; }
+  .loader-bar { width: 200px; height: 3px; background: #21262d; border-radius: 2px; overflow: hidden; }
+  .loader-fill { height: 100%; background: #ff6b35; animation: load 1.5s ease-in-out infinite; }
+  @keyframes load { 0%{width:0;margin-left:0} 50%{width:60%;margin-left:20%} 100%{width:0;margin-left:100%} }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: #161b22; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div style="font-size:24px;color:#ff6b35;font-weight:700;">🔥 Japan Fire Monitor</div>
+  <div class="loader-bar"><div class="loader-fill"></div></div>
+  <div class="loader-text">Loading fire data...</div>
+</div>
+
+<!-- Header -->
+<div id="header">
+  <h1>🔥 Japan Forest Fire Dashboard</h1>
+  <div class="stat-pill"><div class="pulse" id="status-dot"></div>Live <span id="stat-fires">—</span> hotspots</div>
+  <div class="stat-pill">24h FRP <span id="stat-frp">—</span> MW</div>
+  <div class="stat-pill">Prefectures <span id="stat-prefs">—</span> affected</div>
+  <div id="last-update">Updating...</div>
+</div>
+
+<!-- Main -->
+<div id="main">
+  <div id="map"></div>
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div id="sidebar-tabs">
+      <div class="stab active" onclick="switchTab('overview')">Overview</div>
+      <div class="stab" onclick="switchTab('prefecture')">Prefecture</div>
+      <div class="stab" onclick="switchTab('weather')">Weather</div>
+    </div>
+
+    <div id="sidebar-content">
+
+      <!-- OVERVIEW TAB -->
+      <div id="tab-overview">
+        <div id="layer-controls">
+          <div class="lc-title">Map Layers</div>
+          <div class="layer-toggle">
+            <input type="checkbox" id="lyr-hotspots" checked onchange="toggleLayer('hotspots-circle', this.checked)">
+            <label for="lyr-hotspots">Fire hotspots (VIIRS + MODIS)</label>
+          </div>
+          <div class="layer-toggle">
+            <input type="checkbox" id="lyr-heat" checked onchange="toggleLayer('hotspots-heat', this.checked)">
+            <label for="lyr-heat">Heat density map</label>
+          </div>
+          <div class="layer-toggle">
+            <input type="checkbox" id="lyr-pref" checked onchange="toggleLayer('prefecture-fill', this.checked)">
+            <label for="lyr-pref">Prefecture risk overlay</label>
+          </div>
+        </div>
+
+        <div class="legend">
+          <div class="legend-title">Fire sources</div>
+          <div class="legend-row"><div class="legend-dot" style="background:#ff4500"></div><div class="legend-label">VIIRS S-NPP (375m)</div><div class="legend-count" id="cnt-viirs-snpp">—</div></div>
+          <div class="legend-row"><div class="legend-dot" style="background:#ff8c00"></div><div class="legend-label">VIIRS NOAA-20 (375m)</div><div class="legend-count" id="cnt-viirs-noaa">—</div></div>
+          <div class="legend-row"><div class="legend-dot" style="background:#ffd700"></div><div class="legend-label">MODIS Terra (1km)</div><div class="legend-count" id="cnt-modis-terra">—</div></div>
+          <div class="legend-row"><div class="legend-dot" style="background:#ffff00"></div><div class="legend-label">MODIS Aqua (1km)</div><div class="legend-count" id="cnt-modis-aqua">—</div></div>
+        </div>
+
+        <div class="legend">
+          <div class="legend-title">Prefecture risk</div>
+          <div class="legend-row"><div class="legend-dot" style="background:#238636"></div><div class="legend-label">Low / Very low</div></div>
+          <div class="legend-row"><div class="legend-dot" style="background:#9e6a03"></div><div class="legend-label">Moderate</div></div>
+          <div class="legend-row"><div class="legend-dot" style="background:#da3633"></div><div class="legend-label">High</div></div>
+          <div class="legend-row"><div class="legend-dot" style="background:#ff0000"></div><div class="legend-label">Very high / Extreme</div></div>
+        </div>
+
+        <div id="top-hotspots">
+          <div class="lc-title" style="margin-bottom:8px">Top fires by intensity (FRP)</div>
+          <div id="hotspot-list"></div>
+        </div>
+      </div>
+
+      <!-- PREFECTURE TAB -->
+      <div id="tab-prefecture" style="display:none">
+        <div class="empty" id="pref-empty">
+          <div class="empty-icon">🗾</div>
+          Click a prefecture on the map to see details
+        </div>
+        <div id="pref-card">
+          <div class="pref-header">
+            <div class="pref-name" id="pref-name">—</div>
+            <div class="pref-region" id="pref-region">—</div>
+            <span class="risk-badge" id="pref-risk-badge">—</span>
+          </div>
+          <div class="stat-grid">
+            <div class="stat-box"><div class="stat-label">Risk score</div><div class="stat-value" id="pref-score">—</div></div>
+            <div class="stat-box"><div class="stat-label">Hotspots 24h</div><div class="stat-value" id="pref-hotspots">—</div></div>
+            <div class="stat-box"><div class="stat-label">Total FRP</div><div class="stat-value" id="pref-frp">—</div><span class="stat-unit">MW</span></div>
+            <div class="stat-box"><div class="stat-label">Stations</div><div class="stat-value" id="pref-stations">—</div></div>
+          </div>
+          <div id="chart-wrap">
+            <h4>30-day hotspot trend</h4>
+            <canvas id="trendChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- WEATHER TAB -->
+      <div id="tab-weather" style="display:none">
+        <div class="lc-title" style="margin-bottom:8px">Fire Weather Index — all stations</div>
+        <div id="weather-list"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '';  // same origin — FastAPI serves this HTML
+
+// ── Colour helpers ──────────────────────────────────────────────
+const SOURCE_COLORS = {
+  'VIIRS_SNPP':   '#ff4500',
+  'VIIRS_NOAA20': '#ff8c00',
+  'MODIS_Terra':  '#ffd700',
+  'MODIS_Aqua':   '#ffff00'
+};
+
+function riskColor(score) {
+  if (score <= 20)  return '#238636';
+  if (score <= 40)  return '#9e6a03';
+  if (score <= 60)  return '#c9510c';
+  if (score <= 80)  return '#da3633';
+  return '#ff0000';
+}
+
+function frpColor(frp) {
+  if (!frp || frp < 5)   return '#ff4500';
+  if (frp < 20)           return '#ff6500';
+  if (frp < 50)           return '#ff8c00';
+  if (frp < 100)          return '#ffc000';
+  return '#ffffff';
+}
+
+function hoursAgo(dtStr) {
+  const diff = (Date.now() - new Date(dtStr)) / 3600000;
+  if (diff < 1) return `${Math.round(diff*60)}m ago`;
+  return `${diff.toFixed(1)}h ago`;
+}
+
+// ── Map ─────────────────────────────────────────────────────────
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      osm: {
+        type: 'raster',
+        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        attribution: '© OpenStreetMap contributors'
+      }
+    },
+    layers: [{ id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-opacity': 0.6 } }],
+    background: { type: 'background', paint: { 'background-color': '#0f1117' } }
+  },
+  center: [137, 37],
+  zoom: 5,
+  maxZoom: 15,
+  minZoom: 4,
+});
+
+map.addControl(new maplibregl.NavigationControl(), 'top-right');
+map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
+
+// ── State ────────────────────────────────────────────────────────
+let firesGeoJSON   = { type: 'FeatureCollection', features: [] };
+let riskGeoJSON    = { type: 'FeatureCollection', features: [] };
+let trendChart     = null;
+let selectedPref   = null;
+const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false, maxWidth: '240px' });
+
+// ── Load data ────────────────────────────────────────────────────
+async function fetchFires() {
+  try {
+    const r = await fetch(`${API}/api/fires?hours=48`);
+    firesGeoJSON = await r.json();
+    return firesGeoJSON;
+  } catch(e) { console.error('fires fetch:', e); return null; }
+}
+
+async function fetchRisk() {
+  try {
+    const r = await fetch(`${API}/api/risk`);
+    riskGeoJSON = await r.json();
+    return riskGeoJSON;
+  } catch(e) { console.error('risk fetch:', e); return null; }
+}
+
+async function fetchStats() {
+  try {
+    const r = await fetch(`${API}/api/stats`);
+    return await r.json();
+  } catch(e) { return null; }
+}
+
+async function fetchWeather() {
+  try {
+    const r = await fetch(`${API}/api/weather`);
+    return await r.json();
+  } catch(e) { return null; }
+}
+
+async function fetchHistory(prefCode) {
+  try {
+    const r = await fetch(`${API}/api/history?pref_code=${prefCode}&days=30`);
+    return await r.json();
+  } catch(e) { return null; }
+}
+
+// ── Render stats header ──────────────────────────────────────────
+function updateHeader(stats) {
+  if (!stats) return;
+  document.getElementById('stat-fires').textContent = stats.fires_24h || 0;
+  document.getElementById('stat-frp').textContent = stats.total_frp_24h ? Math.round(stats.total_frp_24h) : 0;
+  document.getElementById('stat-prefs').textContent = stats.prefs_affected || 0;
+  const dot = document.getElementById('status-dot');
+  dot.className = 'pulse' + (stats.fires_1h > 0 ? ' warn' : '');
+  const upd = stats.last_update ? new Date(stats.last_update).toLocaleTimeString() : 'never';
+  document.getElementById('last-update').textContent = `Last update: ${upd}`;
+}
+
+// ── Render source legend counts ──────────────────────────────────
+function updateLegendCounts(fires) {
+  const counts = {};
+  fires.features.forEach(f => {
+    const s = f.properties.source;
+    counts[s] = (counts[s] || 0) + 1;
+  });
+  document.getElementById('cnt-viirs-snpp').textContent  = counts['VIIRS_SNPP']   || 0;
+  document.getElementById('cnt-viirs-noaa').textContent  = counts['VIIRS_NOAA20'] || 0;
+  document.getElementById('cnt-modis-terra').textContent = counts['MODIS_Terra']  || 0;
+  document.getElementById('cnt-modis-aqua').textContent  = counts['MODIS_Aqua']   || 0;
+}
+
+// ── Top hotspots list ────────────────────────────────────────────
+function updateHotspotList(fires) {
+  const sorted = [...fires.features]
+    .filter(f => f.properties.pref_name)
+    .sort((a,b) => (b.properties.frp_mw||0) - (a.properties.frp_mw||0))
+    .slice(0, 8);
+  const el = document.getElementById('hotspot-list');
+  if (sorted.length === 0) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">✅</div>No prefecture fires in last 48h</div>';
+    return;
+  }
+  el.innerHTML = sorted.map(f => {
+    const p = f.properties;
+    const col = SOURCE_COLORS[p.source] || '#ff4500';
+    return `<div class="hotspot-item">
+      <div class="hs-dot" style="background:${col}"></div>
+      <div class="hs-info">
+        <div style="font-size:12px;color:#e6edf3;font-weight:600">${p.pref_name || 'Unknown'}</div>
+        <div class="hs-source">${p.source}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="hs-frp" style="color:${col}">${p.frp_mw ? p.frp_mw.toFixed(1) : '—'} MW</div>
+        <div class="hs-time">${hoursAgo(p.acq_datetime)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Weather list ─────────────────────────────────────────────────
+function updateWeatherList(wx) {
+  const el = document.getElementById('weather-list');
+  if (!wx || !wx.observations || wx.observations.length === 0) {
+    el.innerHTML = '<div class="empty"><div>No weather data</div></div>';
+    return;
+  }
+  const sorted = [...wx.observations].sort((a,b) => (b.fwi||0) - (a.fwi||0));
+  el.innerHTML = sorted.map(s => {
+    const fwi = s.fwi ? parseFloat(s.fwi).toFixed(1) : '—';
+    const pct = s.fwi ? Math.min(100, (s.fwi / 150) * 100) : 0;
+    const col = pct > 66 ? '#da3633' : pct > 33 ? '#9e6a03' : '#238636';
+    return `<div style="background:#21262d;border:1px solid #30363d;border-radius:6px;padding:8px 10px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="font-size:12px;font-weight:600;color:#e6edf3">${s.station_name}</span>
+        <span style="font-size:13px;font-weight:700;color:${col}">${fwi}</span>
+      </div>
+      <div class="fwi-bar-wrap"><div class="fwi-bar-bg"><div class="fwi-bar-fill" style="width:${pct}%;background:${col}"></div></div></div>
+      <div style="display:flex;gap:12px;margin-top:4px;font-size:10px;color:#6e7681">
+        <span>🌡 ${s.temp_c !== null ? s.temp_c + '°C' : '—'}</span>
+        <span>💧 ${s.rh_pct !== null ? s.rh_pct + '%' : '—'}</span>
+        <span>💨 ${s.wind_speed_ms !== null ? s.wind_speed_ms + 'm/s' : '—'}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Map layers ───────────────────────────────────────────────────
+map.on('load', async () => {
+  // Add sources
+  map.addSource('fires', { type: 'geojson', data: firesGeoJSON });
+  map.addSource('risk',  { type: 'geojson', data: riskGeoJSON  });
+
+  // Prefecture fill (risk choropleth)
+  map.addLayer({
+    id: 'prefecture-fill',
+    type: 'fill',
+    source: 'risk',
+    paint: {
+      'fill-color': [
+        'interpolate', ['linear'],
+        ['coalesce', ['get', 'risk_score'], 0],
+        0,  '#0d1117',
+        20, '#155027',
+        40, '#9e6a03',
+        60, '#c9510c',
+        80, '#da3633',
+        100,'#ff0000'
+      ],
+      'fill-opacity': 0.45
+    }
+  });
+
+  // Prefecture outline
+  map.addLayer({
+    id: 'prefecture-line',
+    type: 'line',
+    source: 'risk',
+    paint: { 'line-color': '#30363d', 'line-width': 0.8 }
+  });
+
+  // Selected prefecture highlight
+  map.addLayer({
+    id: 'prefecture-selected',
+    type: 'line',
+    source: 'risk',
+    filter: ['==', ['get', 'pref_code'], ''],
+    paint: { 'line-color': '#ff6b35', 'line-width': 2.5 }
+  });
+
+  // Fire heat map
+  map.addLayer({
+    id: 'hotspots-heat',
+    type: 'heatmap',
+    source: 'fires',
+    maxzoom: 10,
+    paint: {
+      'heatmap-weight': ['interpolate', ['linear'], ['coalesce', ['get', 'frp_mw'], 1], 0, 0, 200, 1],
+      'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 4, 0.5, 10, 2],
+      'heatmap-color': [
+        'interpolate', ['linear'], ['heatmap-density'],
+        0,   'rgba(0,0,0,0)',
+        0.2, 'rgba(255,80,0,0.3)',
+        0.5, 'rgba(255,120,0,0.6)',
+        0.8, 'rgba(255,180,0,0.8)',
+        1,   'rgba(255,255,200,1)'
+      ],
+      'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 4, 12, 10, 30],
+      'heatmap-opacity': 0.7
+    }
+  });
+
+  // Fire circles
+  map.addLayer({
+    id: 'hotspots-circle',
+    type: 'circle',
+    source: 'fires',
+    minzoom: 5,
+    paint: {
+      'circle-radius': [
+        'interpolate', ['linear'],
+        ['coalesce', ['get', 'frp_mw'], 1],
+        0, 3, 10, 5, 50, 8, 200, 14
+      ],
+      'circle-color': [
+        'match', ['get', 'source'],
+        'VIIRS_SNPP',   '#ff4500',
+        'VIIRS_NOAA20', '#ff8c00',
+        'MODIS_Terra',  '#ffd700',
+        'MODIS_Aqua',   '#ffff00',
+        '#ff4500'
+      ],
+      'circle-opacity': 0.85,
+      'circle-stroke-color': '#000',
+      'circle-stroke-width': 0.5
+    }
+  });
+
+  // ── Interactions ─────────────────────────────────────────────
+
+  // Hotspot popup on click
+  map.on('click', 'hotspots-circle', (e) => {
+    const p = e.features[0].properties;
+    const coords = e.features[0].geometry.coordinates.slice();
+    popup.setLngLat(coords).setHTML(`
+      <div class="popup-title">🔥 ${p.pref_name || 'Outside Japan'}</div>
+      <div style="margin-bottom:6px"><span class="popup-frp">${p.frp_mw ? parseFloat(p.frp_mw).toFixed(1) : '—'}</span><span style="font-size:11px;color:#8b949e"> MW FRP</span></div>
+      <div class="popup-row"><span class="popup-key">Source</span><span class="popup-val">${p.source}</span></div>
+      <div class="popup-row"><span class="popup-key">Confidence</span><span class="popup-val">${p.confidence || '—'}</span></div>
+      <div class="popup-row"><span class="popup-key">Detected</span><span class="popup-val">${hoursAgo(p.acq_datetime)}</span></div>
+      <div class="popup-row"><span class="popup-key">Day/Night</span><span class="popup-val">${p.daynight === 'D' ? '☀️ Day' : '🌙 Night'}</span></div>
+    `).addTo(map);
+    e.stopPropagation();
+  });
+
+  map.on('mouseenter', 'hotspots-circle', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'hotspots-circle', () => { map.getCanvas().style.cursor = ''; });
+
+  // Prefecture click → sidebar
+  map.on('click', 'prefecture-fill', async (e) => {
+    if (e.features.length === 0) return;
+    const p = e.features[0].properties;
+    selectedPref = p.pref_code;
+    map.setFilter('prefecture-selected', ['==', ['get', 'pref_code'], p.pref_code]);
+    switchTab('prefecture');
+    showPrefCard(p);
+    const hist = await fetchHistory(p.pref_code);
+    updateTrendChart(hist);
+  });
+
+  map.on('mouseenter', 'prefecture-fill', () => { map.getCanvas().style.cursor = 'crosshair'; });
+  map.on('mouseleave', 'prefecture-fill', () => { map.getCanvas().style.cursor = ''; });
+
+  // Initial load
+  await refreshAll();
+  document.getElementById('loading-overlay').style.opacity = '0';
+  setTimeout(() => document.getElementById('loading-overlay').style.display = 'none', 500);
+
+  // Auto-refresh every 10 minutes
+  setInterval(refreshAll, 600000);
+});
+
+// ── Refresh all data ─────────────────────────────────────────────
+async function refreshAll() {
+  const [fires, risk, stats, wx] = await Promise.all([
+    fetchFires(), fetchRisk(), fetchStats(), fetchWeather()
+  ]);
+
+  if (fires) {
+    map.getSource('fires').setData(fires);
+    updateLegendCounts(fires);
+    updateHotspotList(fires);
+  }
+  if (risk) {
+    map.getSource('risk').setData(risk);
+  }
+  if (stats) updateHeader(stats);
+  if (wx) updateWeatherList(wx);
+
+  document.getElementById('last-update').textContent =
+    `Updated: ${new Date().toLocaleTimeString()}`;
+}
+
+// ── Prefecture sidebar ───────────────────────────────────────────
+function showPrefCard(p) {
+  document.getElementById('pref-empty').style.display = 'none';
+  document.getElementById('pref-card').style.display = 'block';
+  document.getElementById('pref-name').textContent = p.pref_name_en || '—';
+  document.getElementById('pref-region').textContent = p.pref_name_ja || '';
+  document.getElementById('pref-score').textContent = p.risk_score ? parseFloat(p.risk_score).toFixed(0) : '—';
+  document.getElementById('pref-hotspots').textContent = p.hotspot_count_24h || 0;
+  document.getElementById('pref-frp').textContent = p.total_frp_mw ? parseFloat(p.total_frp_mw).toFixed(1) : 0;
+
+  const badge = document.getElementById('pref-risk-badge');
+  const level = p.risk_level || 'very_low';
+  badge.textContent = level.replace('_', ' ').toUpperCase();
+  badge.className = `risk-badge risk-${level}`;
+
+  // Count weather stations for this prefecture
+  document.getElementById('pref-stations').textContent = '1';
+}
+
+// ── Trend chart ──────────────────────────────────────────────────
+function updateTrendChart(hist) {
+  const ctx = document.getElementById('trendChart');
+  if (trendChart) { trendChart.destroy(); trendChart = null; }
+  if (!hist || !hist.data || hist.data.length === 0) return;
+
+  trendChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: hist.data.map(d => d.date.slice(5)),
+      datasets: [{
+        data: hist.data.map(d => d.hotspot_count),
+        backgroundColor: '#ff6b3566',
+        borderColor: '#ff6b35',
+        borderWidth: 1,
+        borderRadius: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#6e7681', font: { size: 9 } }, grid: { color: '#21262d' } },
+        y: { ticks: { color: '#6e7681', font: { size: 9 } }, grid: { color: '#21262d' } }
+      }
+    }
+  });
+}
+
+// ── Tab switching ────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.stab').forEach((t,i) => {
+    const tabs = ['overview','prefecture','weather'];
+    t.classList.toggle('active', tabs[i] === name);
+  });
+  document.getElementById('tab-overview').style.display   = name === 'overview'   ? 'block' : 'none';
+  document.getElementById('tab-prefecture').style.display = name === 'prefecture' ? 'block' : 'none';
+  document.getElementById('tab-weather').style.display    = name === 'weather'    ? 'block' : 'none';
+}
+
+// ── Layer toggle ─────────────────────────────────────────────────
+function toggleLayer(id, visible) {
+  map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+}
+</script>
+</body>
+</html>

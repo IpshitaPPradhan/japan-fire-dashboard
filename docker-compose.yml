@@ -1,0 +1,65 @@
+version: "3.9"
+
+# =============================================================
+# Local development stack
+# Run with: docker compose up -d
+# =============================================================
+
+services:
+
+  # PostGIS database (PostgreSQL 16 + PostGIS 3.4)
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: japanfire_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       japanfire
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: postgres
+      # Enable PostGIS raster support
+      POSTGIS_GDAL_ENABLED_DRIVERS: ENABLE_ALL
+      POSTGIS_ENABLE_OUTDB_RASTERS: 1
+    ports:
+      - "5433:5432"
+    volumes:
+      # Persist data between restarts
+      - pgdata:/var/lib/postgresql/data
+      # Auto-run schema on first start (optional — we also have setup.py)
+      # - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d japanfire"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin — web UI for browsing the database
+  # Access at: http://localhost:5050
+  # Login: admin@japanfire.local / admin
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: japanfire_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL:    admin@japanfire.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  pgadmin_data:
+
+# =============================================================
+# Quick reference:
+#   Start:  docker compose up -d
+#   Stop:   docker compose down
+#   Logs:   docker compose logs -f db
+#   Shell:  docker compose exec db psql -U postgres -d japanfire
+#   Reset:  docker compose down -v  (WARNING: deletes all data)
+# =============================================================

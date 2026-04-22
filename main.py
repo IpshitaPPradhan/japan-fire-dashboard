@@ -154,6 +154,7 @@ async def get_fires(
             conditions.append("pref_code = :pref_code")
             params["pref_code"] = pref_code
 
+
         where = " AND ".join(conditions)
 
         sql = f"""

@@ -47,6 +47,26 @@
   .stab.active { color: #ff6b35; border-bottom-color: #ff6b35; }
   #sidebar-content { flex: 1; overflow-y: auto; padding: 12px; }
 
+  /* ── Time slider ── */
+  #time-slider-wrap {
+    position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+    background: #161b22ee; border: 1px solid #30363d; border-radius: 12px;
+    padding: 10px 16px; z-index: 5; display: flex; align-items: center;
+    gap: 12px; min-width: 420px; backdrop-filter: blur(4px);
+  }
+  #time-slider-wrap.hidden { display: none; }
+  #time-slider { flex: 1; accent-color: #ff6b35; cursor: pointer; }
+  #time-label { font-size: 11px; color: #e6edf3; white-space: nowrap; min-width: 130px; text-align: right; }
+  #time-play-btn {
+    background: #21262d; border: 1px solid #30363d; border-radius: 6px;
+    color: #e6edf3; padding: 4px 8px; cursor: pointer; font-size: 13px;
+  }
+  #time-play-btn:hover { background: #30363d; }
+  #time-reset-btn {
+    background: none; border: none; color: #6e7681; cursor: pointer; font-size: 11px;
+  }
+  #time-reset-btn:hover { color: #e6edf3; }
+
   /* ── Layer controls ── */
   #layer-controls {
     background: #161b22; border: 1px solid #30363d; border-radius: 8px;
@@ -204,6 +224,14 @@
           <div class="layer-toggle">
             <input type="checkbox" id="lyr-pref" checked onchange="toggleLayer('prefecture-fill', this.checked)">
             <label for="lyr-pref">Prefecture risk overlay</label>
+          </div>
+          <div class="layer-toggle">
+            <input type="checkbox" id="lyr-weather" checked onchange="toggleLayer('weather-circles', this.checked); toggleLayer('weather-labels', this.checked)">
+            <label for="lyr-weather">Weather stations (FWI)</label>
+          </div>
+          <div class="layer-toggle">
+            <input type="checkbox" id="lyr-timeslider" onchange="toggleTimeSlider(this.checked)">
+            <label for="lyr-timeslider">Time slider (48h playback)</label>
           </div>
         </div>
 
@@ -497,14 +525,15 @@ map.on('load', async () => {
     source: 'fires',
     maxzoom: 10,
     paint: {
-      'heatmap-weight': ['interpolate', ['linear'], ['coalesce', ['get', 'frp_mw'], 1], 0, 0, 200, 1],
-      'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 4, 0.5, 10, 2],
+      'heatmap-weight': ['interpolate', ['linear'], ['coalesce', ['get', 'frp_mw'], 1], 0, 0.3, 200, 1],
+      'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 4, 2, 10, 6],
       'heatmap-color': [
         'interpolate', ['linear'], ['heatmap-density'],
         0,   'rgba(0,0,0,0)',
-        0.2, 'rgba(255,80,0,0.3)',
-        0.5, 'rgba(255,120,0,0.6)',
-        0.8, 'rgba(255,180,0,0.8)',
+        0.1, 'rgba(255,60,0,0.4)',
+        0.3, 'rgba(255,100,0,0.6)',
+        0.6, 'rgba(255,160,0,0.8)',
+        0.8, 'rgba(255,200,0,0.9)',
         1,   'rgba(255,255,200,1)'
       ],
       'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 4, 12, 10, 30],
@@ -517,7 +546,8 @@ map.on('load', async () => {
     id: 'hotspots-circle',
     type: 'circle',
     source: 'fires',
-    minzoom: 5,
+    minzoom: 4,
+    filter: ['!=', ['coalesce', ['get', 'pref_code'], ''], ''], 
     paint: {
       'circle-radius': [
         'interpolate', ['linear'],
@@ -537,6 +567,9 @@ map.on('load', async () => {
       'circle-stroke-width': 0.5
     }
   });
+
+  // Add weather station markers
+  addWeatherLayers();
 
   // ── Interactions ─────────────────────────────────────────────
 
@@ -589,7 +622,10 @@ async function refreshAll() {
   ]);
 
   if (fires) {
-    map.getSource('fires').setData(fires);
+    allFires = fires.features || [];   // store for time slider
+    if (!sliderActive) {
+      map.getSource('fires').setData(fires);
+    }
     updateLegendCounts(fires);
     updateHotspotList(fires);
   }
@@ -597,7 +633,14 @@ async function refreshAll() {
     map.getSource('risk').setData(risk);
   }
   if (stats) updateHeader(stats);
-  if (wx) updateWeatherList(wx);
+  if (wx) {
+    updateWeatherList(wx);
+    // Update weather map layer
+    weatherGeoJSON = buildWeatherGeoJSON(wx);
+    if (map.getSource('weather')) {
+      map.getSource('weather').setData(weatherGeoJSON);
+    }
+  }
 
   document.getElementById('last-update').textContent =
     `Updated: ${new Date().toLocaleTimeString()}`;
@@ -664,8 +707,193 @@ function switchTab(name) {
 
 // ── Layer toggle ─────────────────────────────────────────────────
 function toggleLayer(id, visible) {
-  map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none');
+  try { map.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none'); }
+  catch(e) {}
+}
+
+// ── Weather station markers ───────────────────────────────────────
+let weatherGeoJSON = { type: 'FeatureCollection', features: [] };
+
+function buildWeatherGeoJSON(wx) {
+  if (!wx || !wx.observations) return { type: 'FeatureCollection', features: [] };
+  return {
+    type: 'FeatureCollection',
+    features: wx.observations
+      .filter(s => s.longitude && s.latitude && s.fwi)
+      .map(s => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [parseFloat(s.longitude), parseFloat(s.latitude)] },
+        properties: {
+          station_name: s.station_name,
+          fwi:          parseFloat(s.fwi) || 0,
+          temp_c:       s.temp_c,
+          rh_pct:       s.rh_pct,
+          wind_speed_ms:s.wind_speed_ms,
+        }
+      }))
+  };
+}
+
+function addWeatherLayers() {
+  map.addSource('weather', { type: 'geojson', data: weatherGeoJSON });
+
+  // FWI coloured circles
+  map.addLayer({
+    id: 'weather-circles',
+    type: 'circle',
+    source: 'weather',
+    paint: {
+      'circle-radius': 7,
+      'circle-color': [
+        'interpolate', ['linear'], ['get', 'fwi'],
+        0,   '#238636',
+        20,  '#9e6a03',
+        40,  '#c9510c',
+        60,  '#da3633',
+        100, '#ff0000'
+      ],
+      'circle-opacity': 0.85,
+      'circle-stroke-color': '#0f1117',
+      'circle-stroke-width': 1.5,
+    }
+  });
+
+  // FWI value labels (visible at zoom 6+)
+  map.addLayer({
+    id: 'weather-labels',
+    type: 'symbol',
+    source: 'weather',
+    minzoom: 6,
+    layout: {
+      'text-field': ['concat', ['to-string', ['round', ['get', 'fwi']]]],
+      'text-size': 9,
+      'text-offset': [0, 1.4],
+      'text-anchor': 'top',
+    },
+    paint: {
+      'text-color': '#e6edf3',
+      'text-halo-color': '#0f1117',
+      'text-halo-width': 1,
+    }
+  });
+
+  // Weather station popup
+  map.on('click', 'weather-circles', (e) => {
+    const p = e.features[0].properties;
+    const coords = e.features[0].geometry.coordinates.slice();
+    const fwi = parseFloat(p.fwi).toFixed(1);
+    const fwiColor = p.fwi > 60 ? '#da3633' : p.fwi > 30 ? '#9e6a03' : '#238636';
+    popup.setLngLat(coords).setHTML(`
+      <div class="popup-title">🌤 ${p.station_name}</div>
+      <div style="margin-bottom:6px">
+        <span style="font-size:20px;font-weight:700;color:${fwiColor}">${fwi}</span>
+        <span style="font-size:11px;color:#8b949e"> FWI</span>
+      </div>
+      <div class="popup-row"><span class="popup-key">Temperature</span><span class="popup-val">${p.temp_c !== null ? p.temp_c + ' °C' : '—'}</span></div>
+      <div class="popup-row"><span class="popup-key">Humidity</span><span class="popup-val">${p.rh_pct !== null ? p.rh_pct + '%' : '—'}</span></div>
+      <div class="popup-row"><span class="popup-key">Wind</span><span class="popup-val">${p.wind_speed_ms !== null ? p.wind_speed_ms + ' m/s' : '—'}</span></div>
+    `).addTo(map);
+    e.stopPropagation();
+  });
+  map.on('mouseenter', 'weather-circles', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'weather-circles', () => { map.getCanvas().style.cursor = ''; });
+}
+
+// ── Time slider ───────────────────────────────────────────────────
+let allFires      = [];   // full 48h fire dataset
+let sliderHours   = 47;   // current slider position (0 = oldest, 47 = now)
+let playInterval  = null;
+let sliderActive  = false;
+
+function toggleTimeSlider(visible) {
+  sliderActive = visible;
+  const wrap = document.getElementById('time-slider-wrap');
+  wrap.classList.toggle('hidden', !visible);
+  if (!visible) {
+    resetSlider();
+    if (playInterval) { clearInterval(playInterval); playInterval = null; }
+    document.getElementById('time-play-btn').textContent = '▶';
+  }
+}
+
+function onSliderMove(val) {
+  sliderHours = parseInt(val);
+  updateSliderLabel();
+  filterFiresByTime();
+}
+
+function updateSliderLabel() {
+  const el = document.getElementById('time-label');
+  if (sliderHours >= 47) {
+    el.textContent = 'Now (last 1h)';
+  } else {
+    const hoursBack = 47 - sliderHours;
+    const d = new Date(Date.now() - hoursBack * 3600000);
+    el.textContent = d.toLocaleString('ja-JP', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
+  }
+}
+
+function filterFiresByTime() {
+  if (!sliderActive) return;
+  const nowMs    = Date.now();
+  const hoursBack = 47 - sliderHours;
+  const cutoffMs  = nowMs - hoursBack * 3600000;
+
+  // Cumulative — show all fires UP TO the selected time
+  const filtered = {
+    type: 'FeatureCollection',
+    features: allFires.filter(f => {
+      const t = new Date(f.properties.acq_datetime).getTime();
+      return t <= cutoffMs;
+    })
+  };
+  map.getSource('fires').setData(filtered);
+  document.getElementById('stat-fires').textContent = filtered.features.length + ' (filtered)';
+}
+
+
+function resetSlider() {
+  sliderHours = 47;
+  document.getElementById('time-slider').value = 47;
+  updateSliderLabel();
+  if (firesGeoJSON) map.getSource('fires').setData(firesGeoJSON);
+  document.getElementById('stat-fires').textContent = firesGeoJSON?.count || '—';
+}
+
+function togglePlay() {
+  const btn = document.getElementById('time-play-btn');
+  if (playInterval) {
+    clearInterval(playInterval);
+    playInterval = null;
+    btn.textContent = '▶';
+  } else {
+    btn.textContent = '⏸';
+    if (sliderHours >= 47) {
+      sliderHours = 0;
+      document.getElementById('time-slider').value = 0;
+    }
+    playInterval = setInterval(() => {
+      sliderHours = Math.min(47, sliderHours + 1);
+      document.getElementById('time-slider').value = sliderHours;
+      updateSliderLabel();
+      filterFiresByTime();
+      if (sliderHours >= 47) {
+        clearInterval(playInterval);
+        playInterval = null;
+        btn.textContent = '▶';
+      }
+    }, 400);
+  }
 }
 </script>
+
+<!-- Time slider -->
+<div id="time-slider-wrap" class="hidden">
+  <button id="time-play-btn" onclick="togglePlay()">▶</button>
+  <input type="range" id="time-slider" min="0" max="47" value="47" oninput="onSliderMove(this.value)">
+  <span id="time-label">Now</span>
+  <button id="time-reset-btn" onclick="resetSlider()">Reset</button>
+</div>
+
 </body>
 </html>

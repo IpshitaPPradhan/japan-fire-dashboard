@@ -55,6 +55,13 @@ def job_weather_ingestion():
     except Exception as e:
         log.error(f"[SCHEDULER] Weather job FAILED: {e}", exc_info=True)
 
+def job_risk_scoring():
+    """Compute physics-informed risk scores for all 47 prefectures."""
+    log.info("[SCHEDULER] Risk scoring starting ...")
+    from ml.risk_model import run_risk_scoring
+    result = run_risk_scoring()
+    log.info(f"[SCHEDULER] Risk scoring complete — {result.get('scored',0)} prefectures | "
+             f"high risk: {result.get('high_risk',0)} | model: {result.get('model','?')}")
 
 def job_daily_summary():
     """
@@ -70,6 +77,14 @@ def job_daily_summary():
         log.info(f"[SCHEDULER] Latest hotspot: {stats.get('latest_hotspot')}")
     except Exception as e:
         log.error(f"[SCHEDULER] Daily summary FAILED: {e}", exc_info=True)
+
+def job_risk_scoring():
+    """Compute physics-informed risk scores for all 47 prefectures."""
+    log.info(f"[SCHEDULER] Risk scoring starting ...")
+    from ml.risk_model import run_risk_scoring
+    result = run_risk_scoring()
+    log.info(f"[SCHEDULER] Risk scoring complete — {result.get('scored', 0)} prefectures | "
+             f"high risk: {result.get('high_risk', 0)} | model: {result.get('model', '?')}")
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +123,18 @@ def start_scheduler():
     )
     log.info(f"Scheduled weather ingestion every {weather_interval} minutes")
 
+    scheduler.add_job(
+        job_risk_scoring,
+        trigger=IntervalTrigger(minutes=60),
+        id="risk_scoring",
+        name="Prefecture risk scoring",
+        replace_existing=True,
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=3),
+    )
+    log.info("Scheduled risk scoring every 60 minutes")
+
+    
+
     # Daily summary — 01:00 JST every day
     scheduler.add_job(
         job_daily_summary,
@@ -117,6 +144,17 @@ def start_scheduler():
         replace_existing=True,
     )
     log.info("Scheduled daily summary at 01:00 JST")
+
+    # Risk scoring — runs every hour after weather ingestion
+    scheduler.add_job(
+        job_risk_scoring,
+        trigger=IntervalTrigger(minutes=int(os.getenv("FIRMS_POLL_INTERVAL_MIN", 60))),
+        id="risk_scoring",
+        name="Prefecture risk scoring",
+        replace_existing=True,
+        next_run_time=datetime.now(timezone.utc) + timedelta(minutes=2),
+    )
+    log.info("Scheduled risk scoring every 60 minutes")
 
     scheduler.start()
     log.info("APScheduler started — all ingestion jobs active")

@@ -6,6 +6,18 @@ Powered by NASA FIRMS, JMA weather, PostGIS, FastAPI, and MapLibre GL JS.
 **Live demo:** https://japan-fire-dashboard.onrender.com
 
 ---
+## Screenshots
+
+![Dashboard Overview](assets/dashboard-overview.png)
+*Live fire hotspots across Japan with prefecture risk overlay*
+
+![Prefecture Detail](assets/prefecture-detail.png)
+*Prefecture drill-down with 30-day hotspot trend and weather data*
+
+![FWI Detail](assets/fire-weather-index.png)
+*Fire Weather Index computed from temperature, humidity, and wind speed*
+
+---
 
 ## Architecture
 
@@ -120,4 +132,14 @@ Functions: `get_hotspots_geojson()` · `get_risk_geojson()`
 | Copernicus | Sentinel-2 imagery | 5 day revisit | Free account |
 | GSI | Prefecture boundaries, DEM | Static | Open data |
 
+---
 
+
+## About
+
+**Ipshita Pradhan** — PhD in Remote Sensing, IIT Mandi  
+Research experience: Ehime University (Japan) · Mitsubishi Electric Corporation  
+Interests: Geospatial AI · Data Science · Earth Observation · Computer Vision · CAT Modelling
+
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Ipshita_Pradhan-0077B5?style=flat&logo=linkedin)](https://www.linkedin.com/in/ipshita-priyadarsini-pradhan/)
+[![GitHub](https://img.shields.io/badge/GitHub-IpshitaPPradhan-181717?style=flat&logo=github)](https://github.com/IpshitaPPradhan)

@@ -41,6 +41,11 @@ async def lifespan(app: FastAPI):
 
     log.info("Japan Fire Dashboard starting ...")
 
+    # Auto-initialise DB on fresh Render deployment
+    from db.connection import get_engine
+    from db.init_render import init_db_if_needed
+    init_db_if_needed(get_engine())
+
     # Start background ingestion scheduler
     from ingest.scheduler import start_scheduler
     start_scheduler()
@@ -82,6 +87,9 @@ if os.path.exists("static"):
 # ---------------------------------------------------------------------------
 # API routes
 # ---------------------------------------------------------------------------
+@app.head("/", include_in_schema=False)
+async def head_root():
+    return {}
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def root():

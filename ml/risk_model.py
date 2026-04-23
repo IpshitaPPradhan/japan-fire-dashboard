@@ -187,7 +187,11 @@ def load_xgboost_model():
     if MODEL_PATH.exists():
         try:
             with open(MODEL_PATH, "rb") as f:
-                return pickle.load(f)
+                obj = pickle.load(f)
+            # Model is saved as dict with 'model' key
+            if isinstance(obj, dict):
+                return obj.get("model")
+            return obj
         except Exception as e:
             log.warning(f"Could not load XGBoost model: {e}")
     return None
@@ -390,15 +394,22 @@ def score_all_prefectures(engine=None) -> pd.DataFrame:
             pref_code     = pref_code,
         )
 
+        from datetime import datetime as dt_class
+        doy = dt_class.now().timetuple().tm_yday
+        hc  = int(row["hotspot_count"])
+        frp = float(row["total_frp"])
         features = {
-            "fwi":           safe(row.get("fwi")) or 0,
-            "rh_pct":        safe(row.get("rh_pct")) or 50,
-            "wind_ms":       safe(row.get("wind_ms")) or 0,
-            "temp_c":        safe(row.get("temp_c")) or 15,
-            "hotspot_count": int(row["hotspot_count"]),
-            "total_frp":     float(row["total_frp"]),
-            "forest_cover":  forest_cover,
             "month":         month,
+            "doy":           doy,
+            "hotspot_count": hc,
+            "total_frp":     frp,
+            "max_frp":       frp / max(hc, 1),
+            "avg_frp":       frp / max(hc, 1),
+            "day_fires":     hc * 0.7,   # approximate day/night split
+            "night_fires":   hc * 0.3,
+            "viirs_count":   hc * 0.85,  # VIIRS typically 85% of detections
+            "modis_count":   hc * 0.15,
+            "forest_cover":  forest_cover,
             "clim_factor":   clim_factor,
             "wind_amp":      wind_amp,
         }

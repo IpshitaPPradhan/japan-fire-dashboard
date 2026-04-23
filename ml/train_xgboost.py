@@ -29,64 +29,73 @@ METRICS_PATH = Path(__file__).parent / "model_metrics.json"
 
 def fetch_training_data(engine) -> pd.DataFrame:
     """
-    Build training dataset from accumulated DB observations.
-    
-    Features: weather (FWI, RH, wind, temp) + hotspot history + static
-    Target: next-day hotspot count (regression) → converted to risk score
+    Build training dataset from accumulated fire hotspot history.
+    Uses hotspot data + static features (forest cover, climatology).
+    Weather features added where available.
     """
     from sqlalchemy import text
 
     sql = text("""
-        WITH daily_weather AS (
+        WITH daily_fires AS (
             SELECT
                 pref_code,
-                DATE(obs_datetime AT TIME ZONE 'Asia/Tokyo') AS obs_date,
-                AVG(fwi)            AS fwi,
-                AVG(rh_pct)         AS rh_pct,
-                AVG(wind_speed_ms)  AS wind_ms,
-                AVG(temp_c)         AS temp_c,
-                MIN(rh_pct)         AS min_rh,
-                MAX(wind_speed_ms)  AS max_wind
-            FROM fire.weather_observations
+                pref_name_en,
+                acq_date,
+                EXTRACT(MONTH FROM acq_date)   AS month,
+                EXTRACT(DOY FROM acq_date)      AS doy,
+                EXTRACT(YEAR FROM acq_date)     AS year,
+                COUNT(*)                        AS hotspot_count,
+                COALESCE(SUM(frp_mw), 0)        AS total_frp,
+                COALESCE(MAX(frp_mw), 0)        AS max_frp,
+                COALESCE(AVG(frp_mw), 0)        AS avg_frp,
+                COUNT(CASE WHEN daynight='D' THEN 1 END) AS day_fires,
+                COUNT(CASE WHEN daynight='N' THEN 1 END) AS night_fires,
+                COUNT(CASE WHEN source LIKE 'VIIRS%' THEN 1 END) AS viirs_count,
+                COUNT(CASE WHEN source LIKE 'MODIS%' THEN 1 END) AS modis_count
+            FROM fire.fire_hotspots
             WHERE pref_code IS NOT NULL
-            GROUP BY pref_code, DATE(obs_datetime AT TIME ZONE 'Asia/Tokyo')
+            GROUP BY pref_code, pref_name_en, acq_date
         ),
-        daily_hotspots AS (
+        -- next day fires (target variable)
+        next_day AS (
             SELECT
                 pref_code,
-                acq_date AS obs_date,
-                COUNT(*)        AS hotspot_count,
-                COALESCE(SUM(frp_mw), 0) AS total_frp,
-                COALESCE(MAX(frp_mw), 0) AS max_frp
+                acq_date,
+                COUNT(*) AS next_count,
+                COALESCE(SUM(frp_mw), 0) AS next_frp
             FROM fire.fire_hotspots
             WHERE pref_code IS NOT NULL
             GROUP BY pref_code, acq_date
         )
         SELECT
-            w.pref_code,
-            w.obs_date,
-            EXTRACT(MONTH FROM w.obs_date) AS month,
-            w.fwi, w.rh_pct, w.wind_ms, w.temp_c,
-            w.min_rh, w.max_wind,
-            COALESCE(h.hotspot_count, 0) AS hotspot_count,
-            COALESCE(h.total_frp, 0)     AS total_frp,
-            COALESCE(h.max_frp, 0)       AS max_frp,
-            -- Next day hotspot count (target)
-            COALESCE(h_next.hotspot_count, 0) AS next_day_hotspots
-        FROM daily_weather w
-        LEFT JOIN daily_hotspots h
-            ON h.pref_code = w.pref_code AND h.obs_date = w.obs_date
-        LEFT JOIN daily_hotspots h_next
-            ON h_next.pref_code = w.pref_code
-           AND h_next.obs_date = w.obs_date + INTERVAL '1 day'
-        WHERE w.fwi IS NOT NULL
-        ORDER BY w.pref_code, w.obs_date
+            d.pref_code,
+            d.acq_date,
+            d.month,
+            d.doy,
+            d.year,
+            d.hotspot_count,
+            d.total_frp,
+            d.max_frp,
+            d.avg_frp,
+            d.day_fires,
+            d.night_fires,
+            d.viirs_count,
+            d.modis_count,
+            COALESCE(n.next_count, 0) AS next_day_hotspots,
+            COALESCE(n.next_frp, 0)   AS next_day_frp
+        FROM daily_fires d
+        LEFT JOIN next_day n
+            ON n.pref_code = d.pref_code
+           AND n.acq_date  = d.acq_date + INTERVAL '1 day'
+        ORDER BY d.pref_code, d.acq_date
     """)
 
     with engine.connect() as conn:
         df = pd.read_sql(sql, conn)
 
-    log.info(f"Fetched {len(df)} training rows across {df['pref_code'].nunique()} prefectures")
+    log.info(f"Fetched {len(df):,} training rows across "
+             f"{df['pref_code'].nunique()} prefectures "
+             f"({df['acq_date'].min()} to {df['acq_date'].max()})")
     return df
 
 
@@ -101,18 +110,17 @@ def build_features(df: pd.DataFrame) -> tuple:
     df["clim_factor"]  = df["month"].apply(lambda m: get_climatology(int(m)))
     df["wind_amp"]     = df["pref_code"].apply(get_wind_amplification)
 
-    # Target: convert next_day_hotspots to risk score 0-100
-    # Use log transform to handle skewed distribution
+    # Target: next day hotspot count → risk score 0-100
     df["target"] = np.clip(
         np.log1p(df["next_day_hotspots"]) / np.log1p(50) * 100,
         0, 100
     )
 
     feature_cols = [
-        "fwi", "rh_pct", "wind_ms", "temp_c",
-        "min_rh", "max_wind",
-        "hotspot_count", "total_frp", "max_frp",
-        "forest_cover", "clim_factor", "wind_amp", "month"
+        "month", "doy", "hotspot_count", "total_frp",
+        "max_frp", "avg_frp", "day_fires", "night_fires",
+        "viirs_count", "modis_count",
+        "forest_cover", "clim_factor", "wind_amp"
     ]
 
     X = df[feature_cols].fillna(0).values

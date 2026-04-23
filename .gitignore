@@ -45,6 +45,8 @@ models/*.joblib
 models/*.pt
 models/*.onnx
 mlruns/
+ml/*.pkl
+ml/*.joblib
 
 # OS
 .DS_Store

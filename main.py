@@ -114,8 +114,8 @@ async def root():
 
 @app.get("/api/fires")
 async def get_fires(
-    hours: int = Query(default=48, ge=1, le=240,
-                       description="Hours back to fetch (1-240, default 48)"),
+    hours: int = Query(default=48, ge=1, le=720,
+                       description="Hours back to fetch (1-720, default 48)"),
     source: str = Query(default=None,
                         description="Filter by source: VIIRS_SNPP, MODIS_Terra, etc."),
     min_confidence: str = Query(default=None,

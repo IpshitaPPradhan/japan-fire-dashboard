@@ -231,7 +231,7 @@
           </div>
           <div class="layer-toggle">
             <input type="checkbox" id="lyr-timeslider" onchange="toggleTimeSlider(this.checked)">
-            <label for="lyr-timeslider">Time slider (48h playback)</label>
+            <label for="lyr-timeslider">Time slider (30 days playback)</label>
           </div>
         </div>
 
@@ -360,7 +360,7 @@ const popup = new maplibregl.Popup({ closeButton: true, closeOnClick: false, max
 // ── Load data ────────────────────────────────────────────────────
 async function fetchFires() {
   try {
-    const r = await fetch(`${API}/api/fires?hours=48`);
+    const r = await fetch(`${API}/api/fires?hours=720`);
     firesGeoJSON = await r.json();
     return firesGeoJSON;
   } catch(e) { console.error('fires fetch:', e); return null; }
@@ -801,7 +801,7 @@ function addWeatherLayers() {
 
 // ── Time slider ───────────────────────────────────────────────────
 let allFires      = [];   // full 48h fire dataset
-let sliderHours   = 47;   // current slider position (0 = oldest, 47 = now)
+let sliderHours   = 719;   // current slider position (0 = oldest, 719 = now)
 let playInterval  = null;
 let sliderActive  = false;
 
@@ -824,10 +824,10 @@ function onSliderMove(val) {
 
 function updateSliderLabel() {
   const el = document.getElementById('time-label');
-  if (sliderHours >= 47) {
-    el.textContent = 'Now (last 1h)';
+  if (sliderHours >= 719) {
+    el.textContent = 'Now';
   } else {
-    const hoursBack = 47 - sliderHours;
+    const hoursBack = 719 - sliderHours;
     const d = new Date(Date.now() - hoursBack * 3600000);
     el.textContent = d.toLocaleString('ja-JP', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
   }
@@ -836,7 +836,7 @@ function updateSliderLabel() {
 function filterFiresByTime() {
   if (!sliderActive) return;
   const nowMs    = Date.now();
-  const hoursBack = 47 - sliderHours;
+  const hoursBack = 719 - sliderHours;
   const cutoffMs  = nowMs - hoursBack * 3600000;
 
   // Cumulative — show all fires UP TO the selected time
@@ -853,8 +853,8 @@ function filterFiresByTime() {
 
 
 function resetSlider() {
-  sliderHours = 47;
-  document.getElementById('time-slider').value = 47;
+  sliderHours = 719;
+  document.getElementById('time-slider').value = 719;
   updateSliderLabel();
   if (firesGeoJSON) map.getSource('fires').setData(firesGeoJSON);
   document.getElementById('stat-fires').textContent = firesGeoJSON?.count || '—';
@@ -868,16 +868,16 @@ function togglePlay() {
     btn.textContent = '▶';
   } else {
     btn.textContent = '⏸';
-    if (sliderHours >= 47) {
+    if (sliderHours >= 719) {
       sliderHours = 0;
       document.getElementById('time-slider').value = 0;
     }
     playInterval = setInterval(() => {
-      sliderHours = Math.min(47, sliderHours + 1);
+      sliderHours = Math.min(719, sliderHours + 1);
       document.getElementById('time-slider').value = sliderHours;
       updateSliderLabel();
       filterFiresByTime();
-      if (sliderHours >= 47) {
+      if (sliderHours >= 719) {
         clearInterval(playInterval);
         playInterval = null;
         btn.textContent = '▶';
@@ -890,7 +890,7 @@ function togglePlay() {
 <!-- Time slider -->
 <div id="time-slider-wrap" class="hidden">
   <button id="time-play-btn" onclick="togglePlay()">▶</button>
-  <input type="range" id="time-slider" min="0" max="47" value="47" oninput="onSliderMove(this.value)">
+  <input type="range" id="time-slider" min="0" max="719" value="719" oninput="onSliderMove(this.value)">
   <span id="time-label">Now</span>
   <button id="time-reset-btn" onclick="resetSlider()">Reset</button>
 </div>

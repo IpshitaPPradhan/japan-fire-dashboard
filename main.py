@@ -301,7 +301,17 @@ async def get_weather(
         """
         df = query_to_df(sql, params)
         records = df.to_dict(orient="records")
-        clean = [{k: str(v) if v is not None and not isinstance(v, (int, float, bool)) else v for k, v in r.items()} for r in records]
+        import math
+        def safe_val(v):
+            if v is None:
+              return None
+            if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+              return None
+            if isinstance(v, (int, float, bool)):
+              return v
+            return str(v)
+
+        clean = [{k: safe_val(v) for k, v in r.items()} for r in records]
         return JSONResponse(content={"count": len(df), "observations": clean})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -344,11 +354,14 @@ async def health_check():
 
         db_stats   = check_db_connection()
         sched_info = get_scheduler_status()
+        
+        db_clean = {k: str(v) if v is not None and not isinstance(v, (int, float, bool)) else v 
+            for k, v in db_stats.items()}
 
         return JSONResponse(content={
             "status":    "ok",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "database":  db_stats,
+            "database":  db_clean,
             "scheduler": sched_info,
         })
     except Exception as e:

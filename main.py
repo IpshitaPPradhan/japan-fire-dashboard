@@ -283,7 +283,7 @@ async def get_weather(
     try:
         from db.connection import query_to_df
 
-        where = "WHERE obs_datetime >= NOW() - INTERVAL '3 hours'"
+        where = "WHERE obs_datetime >= NOW() - INTERVAL '24 hours'"
         params = {}
         if pref_code:
             where += " AND pref_code = :pref_code"
